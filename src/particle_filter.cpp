@@ -33,6 +33,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
   num_particles = 10;  // TODO: Set the number of particles
 
   // initialize random engine for determining position and heading
+   // TODO: make generator class member
   std::default_random_engine gen;
   std::normal_distribution<double> dist_x(x, std[0]);
   std::normal_distribution<double> dist_y(y, std[1]);
@@ -74,6 +75,29 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
    *  http://www.cplusplus.com/reference/random/default_random_engine/
    */
 
+   // init generator once with mean 0 and add value later to the real mean
+   // TODO: make generator class member
+   std::default_random_engine gen;
+   std::normal_distribution<double> dist_x(0, std_pos[0]);
+   std::normal_distribution<double> dist_y(0, std_pos[1]);
+   std::normal_distribution<double> dist_theta(0, std_pos[2]);
+
+   // update each particle
+   for(auto& p : particles) {
+     // avoid multiple calculations
+     double vel_div_yawrate = velocity / yaw_rate;
+     double theta_plus_deltaTheta = p.theta + yaw_rate * delta_t;
+
+     // calculate the new position and yaw angle
+     p.x = p.x + vel_div_yawrate * (sin(theta_plus_deltaTheta) - sin(p.theta));
+     p.y = p.y + vel_div_yawrate * (cos(p.theta) - cos(theta_plus_deltaTheta));
+     p.theta = theta_plus_deltaTheta;
+
+     // add noise to the values
+     p.x += dist_x(gen);
+     p.y += dist_y(gen);
+     p.theta += dist_theta(gen);
+   }
 }
 
 void ParticleFilter::dataAssociation(vector<LandmarkObs> predicted,
