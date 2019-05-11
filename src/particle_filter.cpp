@@ -111,6 +111,22 @@ void ParticleFilter::dataAssociation(vector<LandmarkObs> predicted,
    *   during the updateWeights phase.
    */
 
+   // loop over all observations and find the nearest neighbor
+   for(auto& o : observations) {
+     // current min Euclidian distance
+     double min = std::numeric_limits<double>::max();
+
+     // loop over all predicted landmarks and check for distance
+     for(const auto& p : predicted) {
+       double currentDist = dist(o.x, o.y, p.x, p.y);
+
+       // if current distance is smaller than current min, this neighbor is closer
+       if(currentDist < min) {
+         min = currentDist;
+         o.id = p.id;
+       }
+     }
+   }
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
