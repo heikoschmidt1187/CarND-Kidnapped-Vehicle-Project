@@ -21,6 +21,9 @@
 using std::string;
 using std::vector;
 
+// make random engine static as it only needs to be initialized once
+static std::default_random_engine gen;
+
 void ParticleFilter::init(double x, double y, double theta, double std[]) {
   /**
    * TODO: Set the number of particles. Initialize all particles to
@@ -30,11 +33,10 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
    * NOTE: Consult particle_filter.h for more information about this method
    *   (and others in this file).
    */
-  num_particles = 10;  // TODO: Set the number of particles
+  num_particles = 40;  // TODO: Set the number of particles
 
   // initialize random engine for determining position and heading
    // TODO: make generator class member
-  std::default_random_engine gen;
   std::normal_distribution<double> dist_x(x, std[0]);
   std::normal_distribution<double> dist_y(y, std[1]);
   std::normal_distribution<double> dist_theta(theta, std[2]);
@@ -63,6 +65,9 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
     // add the new particle to the filter's particle list
     particles.push_back(part);
   }
+
+  // set initialized flag
+  is_initialized = true;
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[],
@@ -77,7 +82,6 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
 
    // init generator once with mean 0 and add value later to the real mean
    // TODO: make generator class member
-   std::default_random_engine gen;
    std::normal_distribution<double> dist_x(0, std_pos[0]);
    std::normal_distribution<double> dist_y(0, std_pos[1]);
    std::normal_distribution<double> dist_theta(0, std_pos[2]);
@@ -88,10 +92,15 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
      double vel_div_yawrate = velocity / yaw_rate;
      double theta_plus_deltaTheta = p.theta + yaw_rate * delta_t;
 
-     // calculate the new position and yaw angle
-     p.x = p.x + vel_div_yawrate * (sin(theta_plus_deltaTheta) - sin(p.theta));
-     p.y = p.y + vel_div_yawrate * (cos(p.theta) - cos(theta_plus_deltaTheta));
-     p.theta = theta_plus_deltaTheta;
+     // calculate the new position and yaw angle -- take care to avoid div0
+     if(fabs(yaw_rate) < 0.00001) {
+       p.x += velocity * delta_t * cos(p.theta);
+       p.y += velocity * delta_t * sin(p.theta);
+     } else {
+       p.x += vel_div_yawrate * (sin(theta_plus_deltaTheta) - sin(p.theta));
+       p.y += vel_div_yawrate * (cos(p.theta) - cos(theta_plus_deltaTheta));
+       p.theta = theta_plus_deltaTheta;
+     }
 
      // add noise to the values
      p.x += dist_x(gen);
@@ -206,6 +215,41 @@ void ParticleFilter::resample() {
    *   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
    */
 
+   // create list for new particles after resampling
+   std::vector<Particle> newParticles;
+
+   // get the current weights for resampling
+   weights.clear();
+
+   for(const auto& p : particles) {
+     weights.push_back(p.weight);
+   }
+
+   // random start point for resampling wheel
+   std::uniform_int_distribution<int> dist_start(0, num_particles - 1);
+   auto index = dist_start(gen);
+
+   // get the maximum weight for the resampling wheel procedure
+   double max_w = *std::max_element(weights.begin(), weights.end());
+
+   // get distribution for manipulating beta value
+   std::uniform_real_distribution<double> dist_beta(0, max_w);
+   double beta = 0.0;
+
+   // get the new particles
+   for(int i = 0; i < num_particles; ++i) {
+     beta += dist_beta(gen);
+
+     while(beta > weights[index]) {
+       beta -= weights[index];
+       index = (index + 1) % num_particles;
+     }
+
+     newParticles.push_back(particles.at(index));
+   }
+
+   // set the new particles as current particles
+   particles = newParticles;
 }
 
 void ParticleFilter::SetAssociations(Particle& particle,
