@@ -146,6 +146,56 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
    *   (look at equation 3.33) http://planning.cs.uiuc.edu/node99.html
    */
 
+   // pre-calculate the Gaussian norm
+   double gaussian_norm = 1 / (2 * M_PI * std_landmark[0] * std_landmark[1]);
+
+   // update weights for each particle
+   for(auto& p : particles) {
+
+     // vector for holding a list of predicted landmarks withing the sensor range
+     std::vector<LandmarkObs> predictedLandmarks;
+
+     for(const auto& m : map_landmarks.landmark_list) {
+
+       // check if Euclidian distance between sensor and particle
+       if(dist(p.x, p.y, m.x_f, m.y_f) < sensor_range) {
+         predictedLandmarks.push_back(LandmarkObs{m.id_i, m.x_f, m.y_f});
+       }
+     }
+
+     // as the observarions are in the car coordinate system, the  need to be transformed
+     // to map coordinate system for further processing
+     std::vector<LandmarkObs> transformedObservations;
+     for(const auto& o : observations) {
+       double tx = p.x + o.x * cos(p.theta) - o.y * sin(p.theta);
+       double ty = p.y + o.y * sin(p.theta) + o.y * cos(p.theta);
+
+       transformedObservations.push_back(LandmarkObs{o.id, tx, ty});
+     }
+
+     // associate the observations with the nearest predicted landmark
+     dataAssociation(predictedLandmarks, transformedObservations);
+
+     // set the current particle weight to 1 to ensure correct multiplication later
+     p.weight = 1.0;
+
+     // loop over all observations and get the associated predicted landmark
+     for(const auto& t : transformedObservations) {
+
+       // find the associated observation
+       auto associatedObs = std::find_if(predictedLandmarks.begin(),
+                                predictedLandmarks.end(),
+                                [&](const LandmarkObs& ob) -> bool {
+                                  return (ob.id == t.id);
+                                });
+
+       // calculate and multiply to weight
+       double exponent = pow(associatedObs->x - std_landmark[0], 2) / (2 * pow(std_landmark[0], 2))
+              + pow(associatedObs->y - std_landmark[1], 2) / (2 * pow(std_landmark[1], 2));
+
+       p.weight *= gaussian_norm * exp(-exponent);
+     }
+   }
 }
 
 void ParticleFilter::resample() {
