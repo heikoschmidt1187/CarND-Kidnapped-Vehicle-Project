@@ -24,6 +24,9 @@ using std::vector;
 // make random engine static as it only needs to be initialized once
 static std::default_random_engine gen;
 
+// debug flag for particle association
+static bool showDebug = false;
+
 void ParticleFilter::init(double x, double y, double theta, double std[]) {
   /**
    * TODO: Set the number of particles. Initialize all particles to
@@ -33,7 +36,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
    * NOTE: Consult particle_filter.h for more information about this method
    *   (and others in this file).
    */
-  num_particles = 20;  // TODO: Set the number of particles
+  num_particles = 50;  // TODO: Set the number of particles
 
   // initialize random engine for determining position and heading
    // TODO: make generator class member
@@ -112,7 +115,8 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
 }
 
 void ParticleFilter::dataAssociation(vector<LandmarkObs> predicted,
-                                     vector<LandmarkObs>& observations) {
+                                     vector<LandmarkObs>& observations,
+                                     Particle& particle) {
   /**
    * TODO: Find the predicted measurement that is closest to each
    *   observed measurement and assign the observed measurement to this
@@ -121,6 +125,10 @@ void ParticleFilter::dataAssociation(vector<LandmarkObs> predicted,
    *   probably find it useful to implement this method and use it as a helper
    *   during the updateWeights phase.
    */
+
+   std::vector<int> associations;
+   std::vector<double> sense_x;
+   std::vector<double> sense_y;
 
    // loop over all observations and find the nearest neighbor
    for(auto& o : observations) {
@@ -140,6 +148,16 @@ void ParticleFilter::dataAssociation(vector<LandmarkObs> predicted,
          o.id = p.id;
        }
      }
+
+     if(showDebug == true) {
+       associations.push_back(o.id);
+       sense_x.push_back(o.x);
+       sense_y.push_back(o.y);
+     }
+   }
+
+   if(showDebug == true) {
+     SetAssociations(particle, associations, sense_x, sense_y);
    }
 }
 
@@ -161,7 +179,9 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
    */
 
    // pre-calculate the Gaussian norm
-   double gaussian_norm = 1 / (2 * M_PI * std_landmark[0] * std_landmark[1]);
+   const double gaussian_norm = 1 / (2 * M_PI * std_landmark[0] * std_landmark[1]);
+   const double x_denom = 2 * std::pow(std_landmark[0], 2);
+   const double y_denom = 2 * std::pow(std_landmark[1], 2);
    double weight_norm = 0.0;
 
    // update weights for each particle
@@ -182,14 +202,14 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
      // to map coordinate system for further processing
      std::vector<LandmarkObs> transformedObservations;
      for(const auto& o : observations) {
-       double tx = p.x + (o.x * cos(p.theta)) - (o.y * sin(p.theta));
-       double ty = p.y + (o.y * sin(p.theta)) + (o.y * cos(p.theta));
+       double tx = cos(p.theta)*o.x - sin(p.theta)*o.y + p.x;
+       double ty = sin(p.theta)*o.x + cos(p.theta)*o.y + p.y;
 
        transformedObservations.push_back(LandmarkObs{o.id, tx, ty});
      }
 
      // associate the observations with the nearest predicted landmark
-     dataAssociation(predictedLandmarks, transformedObservations);
+     dataAssociation(predictedLandmarks, transformedObservations, p);
 
      // set the current particle weight to 1 to ensure correct multiplication later
      p.weight = 1.0;
@@ -205,8 +225,8 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                                 });
 
        // calculate and multiply to weight
-       double exponent = pow(t.x - associatedObs->x, 2) / (2 * pow(std_landmark[0], 2))
-              + pow(t.y - associatedObs->y, 2) / (2 * pow(std_landmark[1], 2));
+       double exponent = (pow(t.x - associatedObs->x, 2) / x_denom)
+              + (pow(t.y - associatedObs->y, 2) / y_denom);
 
        p.weight *= gaussian_norm * exp(-exponent);
      }
