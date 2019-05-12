@@ -33,7 +33,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
    * NOTE: Consult particle_filter.h for more information about this method
    *   (and others in this file).
    */
-  num_particles = 40;  // TODO: Set the number of particles
+  num_particles = 20;  // TODO: Set the number of particles
 
   // initialize random engine for determining position and heading
    // TODO: make generator class member
@@ -64,6 +64,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 
     // add the new particle to the filter's particle list
     particles.push_back(part);
+    weights.push_back(part.weight);
   }
 
   // set initialized flag
@@ -88,15 +89,16 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
 
    // update each particle
    for(auto& p : particles) {
-     // avoid multiple calculations
-     double vel_div_yawrate = velocity / yaw_rate;
-     double theta_plus_deltaTheta = p.theta + yaw_rate * delta_t;
 
      // calculate the new position and yaw angle -- take care to avoid div0
-     if(fabs(yaw_rate) < 0.00001) {
-       p.x += velocity * delta_t * cos(p.theta);
-       p.y += velocity * delta_t * sin(p.theta);
+     if(fabs(yaw_rate) < 0.0001) {
+       p.x += velocity * cos(p.theta) * delta_t;
+       p.y += velocity * sin(p.theta) * delta_t;
      } else {
+       // avoid multiple calculations
+       double vel_div_yawrate = velocity / yaw_rate;
+       double theta_plus_deltaTheta = p.theta + (yaw_rate * delta_t);
+
        p.x += vel_div_yawrate * (sin(theta_plus_deltaTheta) - sin(p.theta));
        p.y += vel_div_yawrate * (cos(p.theta) - cos(theta_plus_deltaTheta));
        p.theta = theta_plus_deltaTheta;
@@ -124,6 +126,9 @@ void ParticleFilter::dataAssociation(vector<LandmarkObs> predicted,
    for(auto& o : observations) {
      // current min Euclidian distance
      double min = std::numeric_limits<double>::max();
+
+     // initialize id with no real value in case there's no measurement
+     o.id = -1;
 
      // loop over all predicted landmarks and check for distance
      for(const auto& p : predicted) {
@@ -157,11 +162,12 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 
    // pre-calculate the Gaussian norm
    double gaussian_norm = 1 / (2 * M_PI * std_landmark[0] * std_landmark[1]);
+   double weight_norm = 0.0;
 
    // update weights for each particle
    for(auto& p : particles) {
 
-     // vector for holding a list of predicted landmarks withing the sensor range
+     // vector for holding a list of predicted landmarks within the sensor range
      std::vector<LandmarkObs> predictedLandmarks;
 
      for(const auto& m : map_landmarks.landmark_list) {
@@ -176,8 +182,8 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
      // to map coordinate system for further processing
      std::vector<LandmarkObs> transformedObservations;
      for(const auto& o : observations) {
-       double tx = p.x + o.x * cos(p.theta) - o.y * sin(p.theta);
-       double ty = p.y + o.y * sin(p.theta) + o.y * cos(p.theta);
+       double tx = p.x + (o.x * cos(p.theta)) - (o.y * sin(p.theta));
+       double ty = p.y + (o.y * sin(p.theta)) + (o.y * cos(p.theta));
 
        transformedObservations.push_back(LandmarkObs{o.id, tx, ty});
      }
@@ -199,11 +205,18 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                                 });
 
        // calculate and multiply to weight
-       double exponent = pow(associatedObs->x - std_landmark[0], 2) / (2 * pow(std_landmark[0], 2))
-              + pow(associatedObs->y - std_landmark[1], 2) / (2 * pow(std_landmark[1], 2));
+       double exponent = pow(t.x - associatedObs->x, 2) / (2 * pow(std_landmark[0], 2))
+              + pow(t.y - associatedObs->y, 2) / (2 * pow(std_landmark[1], 2));
 
        p.weight *= gaussian_norm * exp(-exponent);
      }
+
+     weight_norm += p.weight;
+   }
+
+   // normalize all weights
+   for(size_t i = 0; (weight_norm > 0.0) && (i < particles.size()); ++i) {
+     particles.at(i).weight /= weight_norm;
    }
 }
 
@@ -233,7 +246,7 @@ void ParticleFilter::resample() {
    double max_w = *std::max_element(weights.begin(), weights.end());
 
    // get distribution for manipulating beta value
-   std::uniform_real_distribution<double> dist_beta(0, max_w);
+   std::uniform_real_distribution<double> dist_beta(0.0, 2.0 * max_w);
    double beta = 0.0;
 
    // get the new particles
